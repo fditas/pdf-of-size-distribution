@@ -1,0 +1,105 @@
+---
+title: "Minimal example of pdfs of size distribution data"
+author: "fd"
+date: "12 October 2018"
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.align = 'center', out.width = 800)
+
+```
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>. \
+\
+
+```{r libraries, echo=T, warning=FALSE, message=FALSE}
+library(tidyverse, quietly = T)
+library(magrittr, quietly = T)
+library(lubridate, quietly = T)
+library(matrixStats, quietly = T)
+library(viridis, quietly = T)
+```
+
+Load your data. In this case, a minimal ready to use dN / dlog dp data set is imported
+covering only 100 samples. 
+The diameter array is derived from the column names.
+
+\
+
+```{r load data, echo=TRUE, warning=FALSE, message=FALSE, cache=TRUE}
+SMPS.data <- read_delim('sample-data.dat', delim = '\t', col_names = T, 
+                             trim_ws = T, guess_max = 100000, progress = F)
+
+SMPS.geom.dp <- SMPS.data %>% select(contains('diam')) %>% names() %>% 
+      str_remove('diam') %>% as.numeric()
+```
+
+\
+
+
+#### All observations
+```{r prepare-pdf, echo=TRUE, warning=FALSE, message=FALSE}
+all.NSD <- SMPS.data %>% select(contains('diam')) # select diameter columns only
+
+# multiply data set (otherwise the pdf looks a bit boring)
+new.NSDs <- c()
+factor <- rnorm(n = 200, mean = 2, sd = 0.3)
+for(i in seq_along(factor)){
+      new.NSDs <- bind_rows(new.NSDs, all.NSD*factor[i])
+}
+
+# calculate column means / medians
+all.NSD.stats <- new.NSDs %>%
+                  summarise_all(funs(mean, median))
+all.NSD.mean <- all.NSD.stats %>% select(contains('mean')) %>% as.numeric()
+all.NSD.median <- all.NSD.stats %>% select(contains('median')) %>% as.numeric()
+
+# convert your data into a dN / dlog dp matrix
+all.dndlog <- (as.matrix(new.NSDs))
+
+# define breaks for your pdf, calculate corresponding mid points (for the plot later)
+hist.breaks <- c(seq(0,100000,10))
+hist.mids <- (hist.breaks[2:length(hist.breaks)] + hist.breaks[1:(length(hist.breaks)-1)])/2
+
+# calculate a pdf for each diameter bin
+all.NSD.pdf <- matrix(-999, nrow = (length(hist.breaks)-1), ncol = ncol(all.dndlog))
+for(j in 1:ncol(all.dndlog)){
+      all.NSD.pdf[,j] <- hist(all.dndlog[,j], breaks = hist.breaks, plot = F)$counts
+}
+```
+
+```{r figure, echo=TRUE, warning=FALSE, message=FALSE, fig.cap="Fig. 1 Probability density function of particle number size distributions. White line denotes median (straight line) and mean (dashed line) NSDs during for all observations."}
+
+# define color scale (viridis is optimized)
+virid.rev <- viridis_pal(alpha = 1, begin = 0.0, end = 1, direction = 1, option = "D")
+
+# define levels of color scale (adjust to fit your data)
+cont.levels <- log10(10) * seq(log10(1), log10(3500), by = 0.2)
+
+# plot
+filled.contour(x = log10(SMPS.geom.dp), y = hist.mids, pmax((log10(t(all.NSD.pdf))), 0),
+         xlim = log10(c(10, 400)), ylim = c(0, 12000),
+         levels = cont.levels,
+         color.palette = (virid.rev),
+         plot.axes = {
+         lines(log10(SMPS.geom.dp), all.NSD.median, col="white", pch=16, cex=0.5, lty = 1)
+         lines(log10(SMPS.geom.dp), all.NSD.mean, col="white", pch=16, cex=0.5, lty = 2)
+         axis(1, tck = -0.02, cex.axis = 1, labels = c(10, 20, 50,100, 200, 400), 
+              at = log10(c(10, 20, 50,100, 200, 400)))
+         axas <- "i"
+         axis(2, tck = -0.02, cex.axis = 1, label = seq(0, 10000, 2000), 
+              at = seq(0, 10000, 2000))
+         },
+         key.axes = {
+               axis(4, cex.axis = 1)
+         },
+)
+mtext(expression(paste(italic("D")[p], " [nm]")), side = 1, line = 3, adj = 0.34, cex = 1.2)
+mtext(expression(paste("d", italic(N), "/dlog", italic(D)[p], " [cm"^{-3}, "]")), 
+      cex = 1.1, side = 2, line = 2.5, las = 0)
+```
+\
+\
